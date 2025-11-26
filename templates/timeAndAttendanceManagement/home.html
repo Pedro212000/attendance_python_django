@@ -55,7 +55,6 @@ function convertExcel() {
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
 
-        // Keep Excel formatting (HH:MM)
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: false });
 
         if (jsonData.length === 0) {
@@ -63,7 +62,7 @@ function convertExcel() {
             return;
         }
 
-        // Display original Excel table
+        // --- Display original Excel table ---
         const headers = Object.keys(jsonData[0]);
         let table = "<table><thead><tr>";
         headers.forEach(header => table += `<th>${header}</th>`);
@@ -75,66 +74,94 @@ function convertExcel() {
         });
         table += "</tbody></table>";
 
-        // --- Compute total hours per employee ---
-        const workLogs = {};
+        // --- Compute per-day and weekly totals ---
+        const WORKDAY_HOURS = 8;
 
-        // Group by employee + date
-        jsonData.forEach(row => {
-            const emp = row['empnum'];
-            const name = row['name'];
-            const date = row['date'];
-            const time = row['time'];
-            const logtype = row['logtype'].toUpperCase();
-
-            if (!emp || !date || !time || !logtype) return;
-
-            const key = emp + '|' + date;
-            if (!workLogs[key]) workLogs[key] = { empnum: emp, name: name };
-
-            workLogs[key][logtype] = time;
-        });
-
-        // Helper: convert HH:MM to decimal hours
         function hhmmToDecimal(hhmm) {
             const [h, m] = hhmm.split(':').map(Number);
             return h + m / 60;
         }
 
-        // Helper: convert decimal hours to HH:MM
         function decimalToHHMM(decimalHours) {
             const hours = Math.floor(decimalHours);
             const minutes = Math.round((decimalHours - hours) * 60);
             return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
         }
 
-        const weeklyHours = {};
+        // Group logs by employee + date
+        const workLogs = {};
+        jsonData.forEach(row => {
+            const emp = row['empnum'];
+            const name = row['name'];
+            const date = row['date'];
+            const logtype = row['logtype'].toUpperCase();
+            const time = row['time'];
+
+            if (!emp || !date || !time || !logtype) return;
+
+            const key = emp + '|' + date;
+            if (!workLogs[key]) workLogs[key] = { empnum: emp, name: name };
+            workLogs[key][logtype] = time;
+        });
+
+        // Per-employee summary
+        const weeklyData = {};
+
+        let perDayTable = "<h3>Per-Day Summary</h3><table><thead><tr><th>Employee</th><th>Date</th><th>Regular Hours</th><th>Overtime</th><th>Undertime</th></tr></thead><tbody>";
 
         for (const key in workLogs) {
             const log = workLogs[key];
             if (!log['IN'] || !log['OUT']) continue;
 
+            const empKey = log.empnum + ' - ' + log.name;
+            if (!weeklyData[empKey]) weeklyData[empKey] = { regular: 0, ot: 0, undertime: 0 };
+
             const inTime = hhmmToDecimal(log['IN']);
             const outTime = hhmmToDecimal(log['OUT']);
             const hoursWorked = outTime - inTime;
 
-            const empKey = log.empnum + ' - ' + log.name;
-            if (!weeklyHours[empKey]) weeklyHours[empKey] = 0;
-            weeklyHours[empKey] += hoursWorked;
+            const regularHours = Math.min(hoursWorked, WORKDAY_HOURS);
+            const otHours = Math.max(hoursWorked - WORKDAY_HOURS, 0);
+            const undertimeHours = hoursWorked < WORKDAY_HOURS ? WORKDAY_HOURS - hoursWorked : 0;
+
+            // Add to weekly totals
+            weeklyData[empKey].regular += regularHours;
+            weeklyData[empKey].ot += otHours;
+            weeklyData[empKey].undertime += undertimeHours;
+
+            // Add per-day row
+            const dateStr = key.split('|')[1];
+            perDayTable += `<tr>
+                <td>${empKey}</td>
+                <td>${dateStr}</td>
+                <td>${decimalToHHMM(regularHours)}</td>
+                <td>${decimalToHHMM(otHours)}</td>
+                <td>${decimalToHHMM(undertimeHours)}</td>
+            </tr>`;
         }
 
-        // Create total hours table
-        let hoursTable = "<h3>Total Hours Worked (Week)</h3><table><thead><tr><th>Employee</th><th>Total Hours</th></tr></thead><tbody>";
-        for (const emp in weeklyHours) {
-            hoursTable += `<tr><td>${emp}</td><td>${decimalToHHMM(weeklyHours[emp])}</td></tr>`;
-        }
-        hoursTable += "</tbody></table>";
+        perDayTable += "</tbody></table>";
 
-        outputDiv.innerHTML = table + hoursTable;
+        // Weekly summary table
+        let weeklyTable = "<h3>Weekly Summary</h3><table><thead><tr><th>Employee</th><th>Regular Hours</th><th>Overtime</th><th>Undertime</th></tr></thead><tbody>";
+        for (const emp in weeklyData) {
+            const data = weeklyData[emp];
+            weeklyTable += `<tr>
+                <td>${emp}</td>
+                <td>${decimalToHHMM(data.regular)}</td>
+                <td>${decimalToHHMM(data.ot)}</td>
+                <td>${decimalToHHMM(data.undertime)}</td>
+            </tr>`;
+        }
+        weeklyTable += "</tbody></table>";
+
+        outputDiv.innerHTML = table + perDayTable + weeklyTable;
     };
 
     reader.readAsArrayBuffer(file);
 }
 </script>
+
 
 </body>
 </html>
