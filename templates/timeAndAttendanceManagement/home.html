@@ -1,167 +1,200 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Landing Page</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TimeAndAttendance Dashboard</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .logout-form {
+            text-align: right;
+            margin-bottom: 20px;
+        }
+        .btn-logout {
+            background-color: #dc3545;
+            color: #fff;
+        }
+        .btn-logout:hover {
+            background-color: #c82333;
+        }
+        .file-section {
+            text-align: center;
+            margin-bottom: 20px;
+        }
         table {
             border-collapse: collapse;
             margin-top: 20px;
             width: 100%;
         }
-
         th, td {
             border: 1px solid #333;
             padding: 8px;
             text-align: left;
         }
-
         th {
-            background-color: #f2f2f2;
+            background-color: #e9ecef;
         }
-
         #jsonOutput {
             margin-top: 20px;
         }
     </style>
 </head>
 <body>
-<h1>Welcome to TimeAndAttendance!</h1>
+    <h1>Welcome to TimeAndAttendance!</h1>
 
-<h2>Upload Excel File</h2>
-<input type="file" id="excelFile" accept=".xlsx,.xls">
-<button onclick="convertExcel()">Compute Weekly Hours</button>
+    <div class="logout-form">
+        <form action="{% url 'logout' %}" method="post">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-logout">Logout</button>
+        </form>
+    </div>
 
-<div id="jsonOutput"></div>
+    <div class="file-section">
+        <h2>Upload Excel File</h2>
+        <input type="file" id="excelFile" accept=".xlsx,.xls" class="form-control mb-2" style="max-width:300px; display:inline-block;">
+        <button onclick="convertExcel()" class="btn btn-primary">Compute Weekly Hours</button>
+    </div>
 
+    <div id="jsonOutput" class="table-responsive"></div>
 <!-- Include SheetJS library -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+
+</body>
+</html>
 <script>
-function convertExcel() {
-    const fileInput = document.getElementById('excelFile');
-    const outputDiv = document.getElementById('jsonOutput');
+    function convertExcel() {
+        const fileInput = document.getElementById('excelFile');
+        const outputDiv = document.getElementById('jsonOutput');
 
-    if (!fileInput.files.length) {
-        alert('Please select an Excel file first!');
-        return;
-    }
-
-    const file = fileInput.files[0];
-    const reader = new FileReader();
-
-    reader.onload = function(e) {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: false });
-
-        if (jsonData.length === 0) {
-            outputDiv.innerHTML = "<p>No data found in the Excel file.</p>";
+        if (!fileInput.files.length) {
+            alert('Please select an Excel file first!');
             return;
         }
 
-        // --- Display original Excel table ---
-        const headers = Object.keys(jsonData[0]);
-        let table = "<table><thead><tr>";
-        headers.forEach(header => table += `<th>${header}</th>`);
-        table += "</tr></thead><tbody>";
-        jsonData.forEach(row => {
-            table += "<tr>";
-            headers.forEach(header => table += `<td>${row[header]}</td>`);
-            table += "</tr>";
-        });
-        table += "</tbody></table>";
+        const file = fileInput.files[0];
+        const reader = new FileReader();
 
-        // --- Compute per-day and weekly totals ---
-        const WORKDAY_HOURS = 8;
+        reader.onload = function (e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
 
-        function hhmmToDecimal(hhmm) {
-            const [h, m] = hhmm.split(':').map(Number);
-            return h + m / 60;
-        }
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
 
-        function decimalToHHMM(decimalHours) {
-            const hours = Math.floor(decimalHours);
-            const minutes = Math.round((decimalHours - hours) * 60);
-            return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
-        }
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, {defval: "", raw: false});
 
-        // Group logs by employee + date
-        const workLogs = {};
-        jsonData.forEach(row => {
-            const emp = row['empnum'];
-            const name = row['name'];
-            const date = row['date'];
-            const logtype = row['logtype'].toUpperCase();
-            const time = row['time'];
+            if (jsonData.length === 0) {
+                outputDiv.innerHTML = "<p>No data found in the Excel file.</p>";
+                return;
+            }
 
-            if (!emp || !date || !time || !logtype) return;
+            // --- Display original Excel table ---
+            const headers = Object.keys(jsonData[0]);
+            let table = "<table><thead><tr>";
+            headers.forEach(header => table += `<th>${header}</th>`);
+            table += "</tr></thead><tbody>";
+            jsonData.forEach(row => {
+                table += "<tr>";
+                headers.forEach(header => table += `<td>${row[header]}</td>`);
+                table += "</tr>";
+            });
+            table += "</tbody></table>";
 
-            const key = emp + '|' + date;
-            if (!workLogs[key]) workLogs[key] = { empnum: emp, name: name };
-            workLogs[key][logtype] = time;
-        });
+            // --- Compute per-day and weekly totals ---
+            const WORKDAY_HOURS = 8;
 
-        // Per-employee summary
-        const weeklyData = {};
+            function hhmmToDecimal(hhmm) {
+                const [h, m] = hhmm.split(':').map(Number);
+                return h + m / 60;
+            }
 
-        let perDayTable = "<h3>Per-Day Summary</h3><table><thead><tr><th>Employee</th><th>Date</th><th>Regular Hours</th><th>Overtime</th><th>Undertime</th></tr></thead><tbody>";
+            function decimalToHHMM(decimalHours) {
+                const hours = Math.floor(decimalHours);
+                const minutes = Math.round((decimalHours - hours) * 60);
+                return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            }
 
-        for (const key in workLogs) {
-            const log = workLogs[key];
-            if (!log['IN'] || !log['OUT']) continue;
+            // Group logs by employee + date
+            const workLogs = {};
+            jsonData.forEach(row => {
+                const emp = row['empnum'];
+                const name = row['name'];
+                const date = row['date'];
+                const logtype = row['logtype'].toUpperCase();
+                const time = row['time'];
 
-            const empKey = log.empnum + ' - ' + log.name;
-            if (!weeklyData[empKey]) weeklyData[empKey] = { regular: 0, ot: 0, undertime: 0 };
+                if (!emp || !date || !time || !logtype) return;
 
-            const inTime = hhmmToDecimal(log['IN']);
-            const outTime = hhmmToDecimal(log['OUT']);
-            const hoursWorked = outTime - inTime;
+                const key = emp + '|' + date;
+                if (!workLogs[key]) workLogs[key] = {empnum: emp, name: name};
+                workLogs[key][logtype] = time;
+            });
 
-            const regularHours = Math.min(hoursWorked, WORKDAY_HOURS);
-            const otHours = Math.max(hoursWorked - WORKDAY_HOURS, 0);
-            const undertimeHours = hoursWorked < WORKDAY_HOURS ? WORKDAY_HOURS - hoursWorked : 0;
+            // Per-employee summary
+            const weeklyData = {};
 
-            // Add to weekly totals
-            weeklyData[empKey].regular += regularHours;
-            weeklyData[empKey].ot += otHours;
-            weeklyData[empKey].undertime += undertimeHours;
+            let perDayTable = "<h3>Per-Day Summary</h3><table><thead><tr><th>Employee</th><th>Date</th><th>Regular Hours</th><th>Overtime</th><th>Undertime</th></tr></thead><tbody>";
 
-            // Add per-day row
-            const dateStr = key.split('|')[1];
-            perDayTable += `<tr>
+            for (const key in workLogs) {
+                const log = workLogs[key];
+                if (!log['IN'] || !log['OUT']) continue;
+
+                const empKey = log.empnum + ' - ' + log.name;
+                if (!weeklyData[empKey]) weeklyData[empKey] = {regular: 0, ot: 0, undertime: 0};
+
+                const inTime = hhmmToDecimal(log['IN']);
+                const outTime = hhmmToDecimal(log['OUT']);
+                const hoursWorked = outTime - inTime;
+
+                const regularHours = Math.min(hoursWorked, WORKDAY_HOURS);
+                const otHours = Math.max(hoursWorked - WORKDAY_HOURS, 0);
+                const undertimeHours = hoursWorked < WORKDAY_HOURS ? WORKDAY_HOURS - hoursWorked : 0;
+
+                // Add to weekly totals
+                weeklyData[empKey].regular += regularHours;
+                weeklyData[empKey].ot += otHours;
+                weeklyData[empKey].undertime += undertimeHours;
+
+                // Add per-day row
+                const dateStr = key.split('|')[1];
+                perDayTable += `<tr>
                 <td>${empKey}</td>
                 <td>${dateStr}</td>
                 <td>${decimalToHHMM(regularHours)}</td>
                 <td>${decimalToHHMM(otHours)}</td>
                 <td>${decimalToHHMM(undertimeHours)}</td>
             </tr>`;
-        }
+            }
 
-        perDayTable += "</tbody></table>";
+            perDayTable += "</tbody></table>";
 
-        // Weekly summary table
-        let weeklyTable = "<h3>Weekly Summary</h3><table><thead><tr><th>Employee</th><th>Regular Hours</th><th>Overtime</th><th>Undertime</th></tr></thead><tbody>";
-        for (const emp in weeklyData) {
-            const data = weeklyData[emp];
-            weeklyTable += `<tr>
+            // Weekly summary table
+            let weeklyTable = "<h3>Weekly Summary</h3><table><thead><tr><th>Employee</th><th>Regular Hours</th><th>Overtime</th><th>Undertime</th></tr></thead><tbody>";
+            for (const emp in weeklyData) {
+                const data = weeklyData[emp];
+                weeklyTable += `<tr>
                 <td>${emp}</td>
                 <td>${decimalToHHMM(data.regular)}</td>
                 <td>${decimalToHHMM(data.ot)}</td>
                 <td>${decimalToHHMM(data.undertime)}</td>
             </tr>`;
-        }
-        weeklyTable += "</tbody></table>";
+            }
+            weeklyTable += "</tbody></table>";
 
-        outputDiv.innerHTML = table + perDayTable + weeklyTable;
-    };
+            outputDiv.innerHTML = table + perDayTable + weeklyTable;
+        };
 
-    reader.readAsArrayBuffer(file);
-}
+        reader.readAsArrayBuffer(file);
+    }
 </script>
 
-
-</body>
-</html>
