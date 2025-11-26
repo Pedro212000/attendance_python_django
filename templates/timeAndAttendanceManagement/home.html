@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Landing Page</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        th, td {
+            border: 1px solid #333;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        #jsonOutput {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<h1>Welcome to TimeAndAttendance!</h1>
+
+<h2>Upload Excel File</h2>
+<input type="file" id="excelFile" accept=".xlsx,.xls">
+<button onclick="convertExcel()">Compute Weekly Hours</button>
+
+<div id="jsonOutput"></div>
+
+<!-- Include SheetJS library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+function convertExcel() {
+    const fileInput = document.getElementById('excelFile');
+    const outputDiv = document.getElementById('jsonOutput');
+
+    if (!fileInput.files.length) {
+        alert('Please select an Excel file first!');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+
+        // Keep Excel formatting (HH:MM)
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "", raw: false });
+
+        if (jsonData.length === 0) {
+            outputDiv.innerHTML = "<p>No data found in the Excel file.</p>";
+            return;
+        }
+
+        // Display original Excel table
+        const headers = Object.keys(jsonData[0]);
+        let table = "<table><thead><tr>";
+        headers.forEach(header => table += `<th>${header}</th>`);
+        table += "</tr></thead><tbody>";
+        jsonData.forEach(row => {
+            table += "<tr>";
+            headers.forEach(header => table += `<td>${row[header]}</td>`);
+            table += "</tr>";
+        });
+        table += "</tbody></table>";
+
+        // --- Compute total hours per employee ---
+        const workLogs = {};
+
+        // Group by employee + date
+        jsonData.forEach(row => {
+            const emp = row['empnum'];
+            const name = row['name'];
+            const date = row['date'];
+            const time = row['time'];
+            const logtype = row['logtype'].toUpperCase();
+
+            if (!emp || !date || !time || !logtype) return;
+
+            const key = emp + '|' + date;
+            if (!workLogs[key]) workLogs[key] = { empnum: emp, name: name };
+
+            workLogs[key][logtype] = time;
+        });
+
+        // Helper: convert HH:MM to decimal hours
+        function hhmmToDecimal(hhmm) {
+            const [h, m] = hhmm.split(':').map(Number);
+            return h + m / 60;
+        }
+
+        // Helper: convert decimal hours to HH:MM
+        function decimalToHHMM(decimalHours) {
+            const hours = Math.floor(decimalHours);
+            const minutes = Math.round((decimalHours - hours) * 60);
+            return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
+        }
+
+        const weeklyHours = {};
+
+        for (const key in workLogs) {
+            const log = workLogs[key];
+            if (!log['IN'] || !log['OUT']) continue;
+
+            const inTime = hhmmToDecimal(log['IN']);
+            const outTime = hhmmToDecimal(log['OUT']);
+            const hoursWorked = outTime - inTime;
+
+            const empKey = log.empnum + ' - ' + log.name;
+            if (!weeklyHours[empKey]) weeklyHours[empKey] = 0;
+            weeklyHours[empKey] += hoursWorked;
+        }
+
+        // Create total hours table
+        let hoursTable = "<h3>Total Hours Worked (Week)</h3><table><thead><tr><th>Employee</th><th>Total Hours</th></tr></thead><tbody>";
+        for (const emp in weeklyHours) {
+            hoursTable += `<tr><td>${emp}</td><td>${decimalToHHMM(weeklyHours[emp])}</td></tr>`;
+        }
+        hoursTable += "</tbody></table>";
+
+        outputDiv.innerHTML = table + hoursTable;
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+</script>
+
+</body>
+</html>
